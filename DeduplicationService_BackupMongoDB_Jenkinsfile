@@ -1,0 +1,44 @@
+dataCenter = params.DataCenter
+def label = "dedup-mongo-backup-" + dataCenter
+string currentDateTime = new Date().format('yyyyMMdd-HHmmss')
+string archiveName = "deduplication-mongo-" + currentDateTime + '.tar.gz'
+
+backupDirectory = '/opt/backup'
+
+podTemplate(
+    label: label,
+    namespace: "jenkins",
+    cloud: "kubernetes_" + dataCenter,
+    containers: [
+        containerTemplate(name: "debian", image: "debian:9.9-slim", command: "cat", ttyEnabled: true)
+    ]
+) {
+
+    node(label) {
+		stage("create backup") {
+                    container("debian") {
+                                sh('echo "hello!"' + archiveName)
+                                sh('cat /etc/nsswitch.conf')
+                                sh('cat /etc/os-release')
+                                sh('apt update && apt install -y gnupg2 && apt install -y iputils-ping')
+                                sh('echo trying to ping fs server')
+                                //sh('ping az2-def-fs01 -c4')
+                                sh('apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 9DA31620334BD75D9DCB49F368818C72E52529D4')
+                                sh('echo "deb http://repo.mongodb.org/apt/debian stretch/mongodb-org/4.0 main" | tee /etc/apt/sources.list.d/mongodb-org-4.0.list')
+                                sh('apt update && apt install -y -qq smbclient && apt install -y mongodb-org')
+                                sh('mongodump --version')
+                                sh ("sed -i '/syslog/s/^/#/g' /etc/samba/smb.conf")
+                                sh('rm -rf ' + backupDirectory)
+                                sh('mkdir -p ' + backupDirectory)
+                                sh('chmod 777 ' + backupDirectory)
+                                sh('mongodump --host ' + params.MongoHost + ' --username ' + params.MongoUserName + ' --password ' + params.MongoUserPassword + ' --out ' + backupDirectory)
+                                sh('ls ' + backupDirectory)
+                                sh('tar -zcvf ' + archiveName + ' ' + backupDirectory + '  > /dev/null ')
+                                sh('smbclient -W ' + params.DataCenter.substring(0,2) + ' -m SMB3  -U ' + params.ShareUserName + '%' + params.ShareUserPassword + ' ' + params.SharePath + ' -c "put ' + archiveName + '"')
+                                sh('rm -rfv ' + archiveName)
+                            }
+
+                }
+
+	}
+}
